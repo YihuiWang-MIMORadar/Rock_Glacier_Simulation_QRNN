@@ -70,6 +70,7 @@ linear = (base_speed +
           beta_ndvi * ndvi)
 nonlinear = 0.05 * slope**2
 noise_std = 2.0 + 0.1 * linear
+noise_std = np.maximum(0.1,noise_std)
 noise = np.random.normal(0, noise_std)
 velocity = linear + nonlinear + noise
 velocity = np.maximum(velocity, 1.0)

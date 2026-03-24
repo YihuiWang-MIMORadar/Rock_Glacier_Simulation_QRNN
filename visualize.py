@@ -1,60 +1,53 @@
 """
-Quantile Regression Neural Network (QRNN) training and evaluation
-Note: tensorflow must be installed
+Plot true velocity vs predicted intervals
+Reads either xgb_quantile_predictions.csv or qrnn_predictions.csv
 """
-import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_absolute_error
-import tensorflow as tf
-from tensorflow.keras import layers, models, backend as K
+import matplotlib.pyplot as plt
+import numpy as np
 
-# Load data
-df = pd.read_csv('simulated_rock_glacier_data.csv')
-feature_cols = [c for c in df.columns if c not in ['velocity', 'polygon_id']]
-X = df[feature_cols].values
-y = df['velocity'].values
+# Choose which result file to plot (modify as needed)
+file = 'qrnn_predictions.csv'   # or 'qrnn_predictions.csv'
 
-# Train/test split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
+print(f"Loading data from {file}...")
+df = pd.read_csv(file)
 
-# Quantile loss function
-def quantile_loss(q):
-    def loss(y_true, y_pred):
-        error = y_true - y_pred
-        return K.mean(K.maximum(q * error, (q - 1) * error), axis=-1)
-    return loss
+# Determine true velocity column
+if 'true_velocity' in df.columns:
+    y_true = df['true_velocity'].values
+elif 'velocity' in df.columns:
+    y_true = df['velocity'].values
+else:
+    print("Error: true velocity column not found")
+    exit()
 
-quantiles = [0.1, 0.5, 0.9]
-y_pred_q = {}
+# Check if required prediction columns exist
+for col in ['q10', 'q50', 'q90']:
+    if col not in df.columns:
+        print(f"Error: column {col} not found in {file}")
+        exit()
 
-for q in quantiles:
-    print(f"Training QRNN for quantile {q}")
-    model = models.Sequential([
-        layers.Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
-        layers.Dense(32, activation='relu'),
-        layers.Dense(1)
-    ])
-    model.compile(optimizer='adam', loss=quantile_loss(q))
-    model.fit(X_train, y_train, epochs=50, batch_size=64, verbose=0)
-    y_pred_q[q] = model.predict(X_test).flatten()
+q10 = df['q10'].values
+q50 = df['q50'].values
+q90 = df['q90'].values
 
-# Evaluate
-mae = mean_absolute_error(y_test, y_pred_q[0.5])
-print(f"\nMedian model MAE: {mae:.2f} cm/yr")
+# Sort by true velocity for a cleaner plot
+idx = np.argsort(y_true)
+y_true_sorted = y_true[idx]
+q10_sorted = q10[idx]
+q50_sorted = q50[idx]
+q90_sorted = q90[idx]
 
-# Build results DataFrame
-results = pd.DataFrame({
-    'true_velocity': y_test,
-    'q10': y_pred_q[0.1],
-    'q50': y_pred_q[0.5],
-    'q90': y_pred_q[0.9]
-})
-results['interval_width'] = results['q90'] - results['q10']
-print(f"Average interval width: {results['interval_width'].mean():.2f} cm/yr")
-results.to_csv('qrnn_predictions.csv', index=False)
-print("✅ Predictions saved: qrnn_predictions.csv")
+plt.figure(figsize=(10, 6))
+x_axis = np.arange(len(y_true_sorted))
+plt.fill_between(x_axis, q10_sorted, q90_sorted, alpha=0.3, label='10th–90th percentile')
+plt.plot(x_axis, y_true_sorted, 'o', markersize=2, label='True velocity')
+plt.plot(x_axis, q50_sorted, 'r-', label='Predicted median')
+plt.xlabel('Sample (sorted by true velocity)')
+plt.ylabel('Velocity (cm/yr)')
+plt.title('Rock Glacier Velocity Prediction with Uncertainty Intervals')
+plt.legend()
+plt.tight_layout()
+plt.savefig('velocity_uncertainty.png', dpi=150)
+print("✅ Figure saved: velocity_uncertainty.png")
+plt.show()
